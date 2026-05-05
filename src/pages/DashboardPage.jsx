@@ -2,9 +2,22 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Check, Clock, Search, AlertTriangle, User, X, MapPin, Activity, CircleDot, List, BarChart3 } from 'lucide-react';
 import { LOCATIONS, CATEGORIES, MAP_PINS, STEPPER_STAGES, ACTIVITY_ACTIONS } from '../data.js';
+import { supabase, getPinCoords, timeAgo } from '../supabase.js';
 
 const iconMap = { plus: Plus, check: Check, user: User, clock: Clock, search: Search, alert: AlertTriangle };
 const statusColor = { open: '#ef4444', progress: '#f59e0b', resolved: '#10b981' };
+
+/* Convert DB complaint to a map pin */
+function complaintToPin(c, idx) {
+  const coords = getPinCoords(c.location);
+  const st = c.status === 'In Progress' ? 'progress' : c.status === 'Resolved' ? 'resolved' : 'open';
+  return { id: `db-${c.id || idx}`, x: coords.x, y: coords.y, label: '', status: st, issue: c.issue_type + (c.description ? ' — ' + c.description.substring(0, 30) : ''), location: c.location, date: new Date(c.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) };
+}
+
+/* Convert DB complaint to a feed item */
+function complaintToFeed(c, idx) {
+  return { id: `dbf-${c.id || idx}`, action: `${c.issue_type} reported at ${c.location}`, icon: 'plus', status: 'open', location: c.location, time: timeAgo(c.created_at) };
+}
 
 function CityMap({ pins, heatmapOn, onPinClick }) {
   return (
@@ -91,14 +104,54 @@ export default function DashboardPage({ isMobile }) {
   const [showFeed,setShowFeed]=useState(false);
   const [showTracker,setShowTracker]=useState(false);
   const feedIdRef=useRef(100);
+  const [dbComplaints,setDbComplaints]=useState([]);
 
   const showToastFn=useCallback(msg=>{setToast({visible:true,message:msg});setTimeout(()=>setToast({visible:false,message:''}),3000);},[]);
 
-  useEffect(()=>{const iv=setInterval(()=>{const a=ACTIVITY_ACTIONS[Math.floor(Math.random()*ACTIVITY_ACTIONS.length)];const l=LOCATIONS[Math.floor(Math.random()*LOCATIONS.length)];setFeedItems(prev=>[{id:feedIdRef.current++,...a,location:l,time:'Just now'},...prev].slice(0,7));},8000);return()=>clearInterval(iv);},[]);
-  useEffect(()=>{const iv=setInterval(()=>{setPins(prev=>{const open=prev.filter(p=>p.status==='open');if(!open.length)return prev;const t=open[Math.floor(Math.random()*open.length)];showToastFn(`MB-${2800+t.id} status updated`);return prev.map(p=>p.id===t.id?{...p,status:'progress'}:p);});},10000);return()=>clearInterval(iv);},[showToastFn]);
+  /* ── Fetch real complaints from Supabase ── */
+  useEffect(()=>{
+    async function fetchComplaints(){
+      try{
+        const{data,error}=await supabase.from('complaints').select('*').order('created_at',{ascending:false});
+        if(error)throw error;
+        if(data&&data.length>0){
+          setDbComplaints(data);
+          // Add DB pins to map (merged with hardcoded)
+          const dbPins=data.map((c,i)=>complaintToPin(c,i));
+          setPins(prev=>[...MAP_PINS,...dbPins]);
+          // Add DB feed items at top (most recent 6)
+          const dbFeed=data.slice(0,6).map((c,i)=>complaintToFeed(c,i));
+          setFeedItems(prev=>[...dbFeed,...prev.filter(f=>!String(f.id).startsWith('dbf-'))].slice(0,12));
+        }
+      }catch(err){console.log('Dashboard fetch error:',err);}
+    }
+    fetchComplaints();
+  },[]);
+
+  /* ── Real-time subscription ── */
+  useEffect(()=>{
+    const channel=supabase.channel('complaints-realtime').on('postgres_changes',{event:'INSERT',schema:'public',table:'complaints'},(payload)=>{
+      const c=payload.new;
+      setDbComplaints(prev=>[c,...prev]);
+      setPins(prev=>[...prev,complaintToPin(c,Date.now())]);
+      setFeedItems(prev=>[complaintToFeed(c,Date.now()),...prev].slice(0,12));
+      showToastFn(`New complaint reported at ${c.location}!`);
+    }).subscribe();
+    return()=>{supabase.removeChannel(channel);};
+  },[showToastFn]);
+
+  useEffect(()=>{const iv=setInterval(()=>{const a=ACTIVITY_ACTIONS[Math.floor(Math.random()*ACTIVITY_ACTIONS.length)];const l=LOCATIONS[Math.floor(Math.random()*LOCATIONS.length)];setFeedItems(prev=>[{id:feedIdRef.current++,...a,location:l,time:'Just now'},...prev].slice(0,12));},8000);return()=>clearInterval(iv);},[]);
+  useEffect(()=>{const iv=setInterval(()=>{setPins(prev=>{const open=prev.filter(p=>p.status==='open'&&!String(p.id).startsWith('db-'));if(!open.length)return prev;const t=open[Math.floor(Math.random()*open.length)];showToastFn(`MB-${2800+t.id} status updated`);return prev.map(p=>p.id===t.id?{...p,status:'progress'}:p);});},10000);return()=>clearInterval(iv);},[showToastFn]);
   useEffect(()=>{const iv=setInterval(()=>setStepperIndex(p=>(p+1)%STEPPER_STAGES.length),30000);return()=>clearInterval(iv);},[]);
 
-  const stats={open:pins.filter(p=>p.status==='open').length+240,progress:pins.filter(p=>p.status==='progress').length+84,resolved:pins.filter(p=>p.status==='resolved').length+1197};
+  /* ── Compute real stats ── */
+  const dbOpen=dbComplaints.filter(c=>c.status==='Open').length;
+  const dbProgress=dbComplaints.filter(c=>c.status==='In Progress').length;
+  const dbResolved=dbComplaints.filter(c=>c.status==='Resolved').length;
+  const hardOpen=pins.filter(p=>p.status==='open'&&!String(p.id).startsWith('db-')).length+240;
+  const hardProgress=pins.filter(p=>p.status==='progress'&&!String(p.id).startsWith('db-')).length+84;
+  const hardResolved=pins.filter(p=>p.status==='resolved'&&!String(p.id).startsWith('db-')).length+1197;
+  const stats={open:hardOpen+dbOpen,progress:hardProgress+dbProgress,resolved:hardResolved+dbResolved};
   const details=[{l:'Issue',v:'Pothole — Large, 2ft wide'},{l:'Location',v:'Navghar Road, Bus Stop'},{l:'Assigned To',v:'Ward Officer R. Sharma'},{l:'Est. Resolution',v:'30 Apr 2026'}];
 
   return (

@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { MapPin, Activity, Shield, ArrowRight, FileText, Users, Zap, CheckCircle2 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { supabase } from '../supabase.js';
 
 const fadeUp = { hidden: { opacity: 0, y: 24 }, visible: (i = 0) => ({ opacity: 1, y: 0, transition: { delay: i * 0.1, duration: 0.5 } }) };
 const stagger = { visible: { transition: { staggerChildren: 0.12 } } };
@@ -27,7 +28,22 @@ function CountUp({ target, suffix = '' }) {
 }
 
 export default function HomePage({ onNavigate, isMobile }) {
-  const m = isMobile; // shorthand
+  const m = isMobile;
+  const [realStats, setRealStats] = useState({ open: 247, resolved: 1203 });
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const { data, error } = await supabase.from('complaints').select('status');
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const open = data.filter(c => c.status === 'Open').length;
+          const resolved = data.filter(c => c.status === 'Resolved').length;
+          setRealStats({ open: 247 + open, resolved: 1203 + resolved });
+        }
+      } catch (err) { console.log('Home stats error:', err); }
+    }
+    fetchStats();
+  }, []);
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", paddingBottom: m ? 80 : 0 }}>
 
@@ -77,7 +93,7 @@ export default function HomePage({ onNavigate, isMobile }) {
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
           style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: m ? 12 : 32 }}>
-          {['1,203 Issues Resolved', '94.2% Resolution Rate', '28 Wards Covered'].map(t => (
+          {[`${realStats.resolved.toLocaleString()} Issues Resolved`, '94.2% Resolution Rate', '28 Wards Covered'].map(t => (
             <span key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: m ? 12 : 13, color: '#64748b' }}>
               <CheckCircle2 size={14} color="#10b981" /> {t}
             </span>
@@ -90,9 +106,9 @@ export default function HomePage({ onNavigate, isMobile }) {
         <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={stagger}
           style={{ display: 'grid', gridTemplateColumns: m ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: m ? 12 : 20 }}>
           {[
-            { n: '247', l: 'Open Issues' },
+            { n: String(realStats.open), l: 'Open Issues' },
             { n: '89', l: 'In Progress' },
-            { n: '1,203', l: 'Resolved' },
+            { n: realStats.resolved.toLocaleString(), l: 'Resolved' },
             { n: '2.3', l: 'Avg Resolution', s: ' days' },
           ].map((s, i) => (
             <motion.div key={i} variants={fadeUp} custom={i} className="glass hover-lift"

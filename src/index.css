@@ -104,3 +104,15 @@ html, body, #root {
   /* Disable hover-lift on mobile (no hover on touch) */
   .hover-lift:hover { transform: none; box-shadow: 0 4px 24px rgba(14, 165, 233, 0.08); }
 }
+
+/* Skeleton shimmer for loading states */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Spinner rotation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

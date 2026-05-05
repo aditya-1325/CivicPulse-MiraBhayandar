@@ -206,9 +206,16 @@ function Toast({ visible, message }) {
 /* ═══════ MAIN APP ═══════ */
 export default function App() {
   const [page, setPage] = useState('home');
+  const [trackId, setTrackId] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '' });
   const isMobile = useIsMobile();
+
+  const navigate = useCallback((target, id) => {
+    setPage(target);
+    if (target === 'track' && id) setTrackId(id);
+    else if (target !== 'track') setTrackId('');
+  }, []);
 
   const showToast = useCallback((message) => {
     setToast({ visible: true, message });
@@ -224,13 +231,13 @@ export default function App() {
     <div style={{ minHeight: '100vh', fontFamily: "'Inter', sans-serif", position: 'relative', overflowX: 'hidden', width: '100%' }}>
       <BackgroundOrbs />
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Navbar page={page} onNavigate={setPage} onReport={() => setModalOpen(true)} isMobile={isMobile} />
+        <Navbar page={page} onNavigate={navigate} onReport={() => setModalOpen(true)} isMobile={isMobile} />
         <div style={{ flex: 1, overflowY: page === 'dashboard' ? 'hidden' : 'auto' }}>
           <AnimatePresence mode="wait">
-            {page === 'home' && <motion.div key="home" {...pageAnim}><HomePage onNavigate={setPage} isMobile={isMobile} /></motion.div>}
+            {page === 'home' && <motion.div key="home" {...pageAnim}><HomePage onNavigate={navigate} isMobile={isMobile} /></motion.div>}
             {page === 'dashboard' && <motion.div key="dash" {...pageAnim} style={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}><DashboardPage isMobile={isMobile} /></motion.div>}
-            {page === 'track' && <motion.div key="track" {...pageAnim}><TrackPage isMobile={isMobile} /></motion.div>}
-            {page === 'report' && <motion.div key="report" {...pageAnim}><ReportPage isMobile={isMobile} /></motion.div>}
+            {page === 'track' && <motion.div key="track" {...pageAnim}><TrackPage isMobile={isMobile} initialId={trackId} /></motion.div>}
+            {page === 'report' && <motion.div key="report" {...pageAnim}><ReportPage isMobile={isMobile} onNavigate={navigate} /></motion.div>}
             {page === 'survey' && <motion.div key="survey" {...pageAnim}><SurveyPage isMobile={isMobile} /></motion.div>}
           </AnimatePresence>
         </div>
